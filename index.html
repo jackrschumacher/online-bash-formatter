@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bash Formatter & Diff</title>
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
+    
+    <!-- PrismJS for Syntax Highlighting (Dracula Theme) -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
+    
+    <!-- Chart.js for Stats -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <!-- Confetti for Records -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+
+    <style>
+        :root {
+            --bg-primary: #1e1e1e;
+            --bg-secondary: #252526;
+            --bg-editor: #1e1e1e;
+            --text-primary: #d4d4d4;
+            --text-secondary: #858585;
+            --border-color: #3e3e42;
+            --accent: #007acc;
+            --accent-hover: #005fa3;
+            --diff-add-bg: rgba(46, 160, 67, 0.15);
+            --diff-add-text: #b7f0ba;
+            --diff-rem-bg: rgba(218, 54, 51, 0.15);
+            --diff-rem-text: #ff9999;
+            
+            /* Stats Specific */
+            --modal-overlay: rgba(0, 0, 0, 0.7);
+            --card-bg: #2d2d30;
+            --success-color: #4ec9b0;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* --- Header --- */
+        header {
+            background-color: var(--bg-secondary);
+            padding: 0.8rem 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        h1 { font-size: 1.1rem; margin: 0; color: #569cd6; display: flex; align-items: center; gap: 10px; white-space: nowrap;}
+        
+        .controls { display: flex; gap: 10px; align-items: center; }
+
+        /* --- Buttons --- */
+        .btn {
+            background-color: var(--accent);
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            font-weight: 600;
+            transition: 0.2s;
+            white-space: nowrap;
+        }
+        .btn:hover { filter: brightness(1.1); }
+        .btn-secondary { background-color: #3c3c3c; }
+        
+        /* Switch Toggle */
+        .view-toggle {
+            display: flex;
+            background: #3c3c3c;
+            border-radius: 4px;
+            padding: 2px;
+            margin-right: 10px;
+        }
+        .view-toggle button {
+            background: transparent;
+            border: none;
+            color: #aaa;
+            padding: 4px 12px;
+            cursor: pointer;
+            border-radius: 3px;
+            font-size: 0.75rem;
+        }
+        .view-toggle button.active {
+            background: #505050;
+            color: white;
+            font-weight: bold;
+        }
+
+        /* Filename Input */
+        .filename-input {
+            background: #3c3c3c;
+            border: 1px solid #555;
+            color: #ddd;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            width: 160px;
+            font-family: 'Consolas', monospace;
+        }
+        .filename-input:focus {
+            border-color: var(--accent);
+            outline: none;
+        }
+
+        /* --- Main Editor Area --- */
+        .main-container {
+            display: flex;
+            flex: 1;
+            height: calc(100vh - 100px); /* Adjust for header + footer */
+            min-height: 0;
+        }
+
+        .pane {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid var(--border-color);
+            min-width: 0;
+        }
+
+        .pane-header {
+            background-color: var(--bg-secondary);
+            padding: 5px 15px;
+            font-size: 0.75rem;
+            color: #858585;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 30px;
+            flex-shrink: 0;
+        }
+
+        /* Input Textarea */
+        textarea {
+            width: 100%;
+            height: 100%;
+            background-color: var(--bg-editor);
+            color: #d4d4d4;
+            border: none;
+            resize: none;
+            padding: 10px;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            outline: none;
+            white-space: pre;
+        }
+
+        /* Output Display (Pre/Code) */
+        .output-container {
+            flex: 1;
+            overflow: auto;
+            background-color: var(--bg-editor);
+            position: relative;
+        }
+
+        pre {
+            margin: 0 !important;
+            padding: 10px !important;
+            background: transparent !important;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace !important;
+            font-size: 14px !important;
+            line-height: 1.5 !important;
+            min-height: 100%;
+        }
+
+        /* --- Diff Styling --- */
+        .diff-line {
+            display: block;
+            width: 100%;
+            min-height: 1.5em; /* Ensure empty lines have height */
+        }
+        
+        .diff-added {
+            background-color: var(--diff-add-bg);
+        }
+        .diff-added::before {
+            content: '+';
+            color: var(--diff-add-text);
+            position: absolute;
+            left: 2px;
+            font-weight: bold;
+            opacity: 0.5;
+        }
+
+        .diff-removed {
+            background-color: var(--diff-rem-bg);
+            text-decoration: line-through;
+            color: var(--diff-rem-text) !important; 
+            opacity: 0.7;
+            user-select: none; 
+        }
+        .diff-removed::before {
+            content: '-';
+            color: var(--diff-rem-text);
+            position: absolute;
+            left: 4px;
+            font-weight: bold;
+            opacity: 0.5;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 10px; height: 10px; }
+        ::-webkit-scrollbar-track { background: var(--bg-primary); }
+        ::-webkit-scrollbar-thumb { background: #424242; border-radius: 5px; }
+
+        /* File Input */
+        input[type="file"] { display: none; }
+
+        /* --- Footer & Stats --- */
+        footer {
+            background-color: var(--bg-secondary);
+            border-top: 1px solid var(--border-color);
+            padding: 5px 15px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 0.8rem;
+            height: 40px;
+            flex-shrink: 0;
+        }
+
+        .session-badge {
+            background-color: #007acc33;
+            color: #9cdcfe;
+            padding: 4px 12px;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid #007acc66;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .session-badge:hover {
+            background-color: #007acc55;
+            border-color: #007acc;
+        }
+
+        /* --- Modal Styling --- */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: var(--modal-overlay);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            backdrop-filter: blur(2px);
+        }
+
+        .modal-box {
+            background: var(--bg-secondary);
+            padding: 25px;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 750px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal-box h3 { margin-top: 0; color: white; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;}
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: var(--card-bg);
+            padding: 15px;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+            text-align: center;
+        }
+        .stat-card .num { font-size: 1.4rem; font-weight: bold; color: var(--accent); display: block; margin-bottom: 5px; }
+        .stat-card .label { font-size: 0.8rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; }
+
+        .chart-container {
+            position: relative;
+            height: 250px;
+            width: 100%;
+            margin-bottom: 20px;
+            background: var(--card-bg);
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+        }
+
+        .monthly-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+            color: var(--text-primary);
+        }
+        .monthly-table th { text-align: left; padding: 8px; border-bottom: 1px solid var(--border-color); color: var(--text-secondary); }
+        .monthly-table td { padding: 8px; border-bottom: 1px solid #333; }
+        .monthly-table tr:last-child td { border-bottom: none; }
+
+        .modal-buttons { display: flex; justify-content: flex-end; margin-top: 20px; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1><span>&gt;_</span> Online bash formatter v1.0</h1>
+         
+        <div class="controls">
+            <div class="view-toggle">
+                <button id="btnViewCode" class="active" onclick="setView('code')">Code</button>
+                <button id="btnViewDiff" onclick="setView('diff')">Diff</button>
+            </div>
+            
+            <label class="btn btn-secondary">
+                Open File
+                <input type="file" id="fileInput" accept=".sh,.bash,.txt">
+            </label>
+
+            <input type="text" id="fileName" class="filename-input" placeholder="script.sh" value="formatted_script.sh" title="Filename to save as">
+            
+            <button class="btn" onclick="downloadOutput()">Download</button>
+            <button class="btn btn-secondary" onclick="copyOutput()">Copy</button>
+        </div>
+    </header>
+
+    <div class="main-container">
+        <!-- Left: Raw Input -->
+        <div class="pane">
+            <div class="pane-header">Input (Editable)</div>
+            <textarea id="inputArea" spellcheck="false" placeholder="# Paste script here...&#10;if [ $x ]; then echo 'hi'; fi"></textarea>
+        </div>
+
+        <!-- Right: Formatted/Diff Output -->
+        <div class="pane">
+            <div class="pane-header">
+                <span id="outputLabel">Formatted Output</span>
+            </div>
+            <div class="output-container" id="outputContainer">
+                <!-- Content injected by JS -->
+                <pre><code id="codeBlock" class="language-bash"></code></pre>
+            </div>
+        </div>
+    </div>
+
+    <footer>
+        <div class="session-badge" id="global-total" title="Click to view community stats">
+            📊 Community Stats: Loading...
+        </div>
+    </footer>
+
+    <!-- STATS MODAL -->
+    <div id="statsModal" class="modal-overlay">
+        <div class="modal-box">
+            <h3>Community Statistics</h3>
+            
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <span class="num" id="modalLines">0</span>
+                    <span class="label">Lines Formatted</span>
+                </div>
+                <div class="stat-card">
+                    <span class="num" id="modalChars">0</span>
+                    <span class="label">Chars Processed</span>
+                </div>
+                <div class="stat-card">
+                    <span class="num" id="modalChanged">0</span>
+                    <span class="label">Lines Changed</span>
+                </div>
+                <div class="stat-card">
+                    <span class="num" id="modalActions">0</span>
+                    <span class="label">Total Formats</span>
+                </div>
+            </div>
+
+            <div class="chart-container">
+                <canvas id="statsChart"></canvas>
+            </div>
+
+            <p style="margin-bottom: 10px; font-size: 0.9rem; color: var(--text-secondary);">History by Month</p>
+            <div style="max-height: 150px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 4px;">
+                <table class="monthly-table">
+                    <thead>
+                        <tr><th>Month</th><th>Lines</th><th>Changed</th><th>Chars</th><th>Formats</th></tr>
+                    </thead>
+                    <tbody id="monthlyTableBody">
+                        <tr><td colspan="5">Loading data...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="modal-buttons">
+                <button class="btn btn-secondary" id="btnCloseStats">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dependencies -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsdiff/5.1.0/diff.min.js"></script>
+
+    <!-- Firebase Logic (Module) -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-app.js";
+        import { getDatabase, ref, onValue, runTransaction, get, child } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-database.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-auth.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyB9LEa_EFmg1B98gwbZC6SpZDDNZzlwcm8",
+            authDomain: "bash-formatter.firebaseapp.com",
+            databaseURL: "https://bash-formatter-default-rtdb.firebaseio.com",
+            projectId: "bash-formatter",
+            storageBucket: "bash-formatter.firebasestorage.app",
+            messagingSenderId: "456178178564",
+            appId: "1:456178178564:web:37e347055bfef3cbae3351"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getDatabase(app);
+        const statsRef = ref(db, 'community_stats');
+        
+        // UI Elements
+        const globalBadge = document.getElementById('global-total');
+        const statsModal = document.getElementById('statsModal');
+        const btnCloseStats = document.getElementById('btnCloseStats');
+        const monthlyTableBody = document.getElementById('monthlyTableBody');
+        const modalLines = document.getElementById('modalLines');
+        const modalChars = document.getElementById('modalChars');
+        const modalChanged = document.getElementById('modalChanged');
+        const modalActions = document.getElementById('modalActions');
+
+        let statsChartInstance = null;
+        let currentRecordStats = { max_lines: 0, max_chars: 0 };
+        let statsLoaded = false;
+
+        // 1. Initialize Auth
+        async function initAuth() {
+             try {
+                 await signInAnonymously(auth);
+             } catch (error) {
+                 console.error("Auth Error:", error);
+                 globalBadge.innerText = "Stats: Auth Error";
+             }
+        }
+        initAuth();
+
+        // 2. READ Listener (Only attaches after auth)
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                const totalRef = child(statsRef, 'total');
+                onValue(totalRef, (snapshot) => {
+                    const data = snapshot.val() || {};
+                    statsLoaded = true;
+                    
+                    currentRecordStats.max_lines = data.max_lines || 0;
+                    currentRecordStats.max_chars = data.max_chars || 0;
+
+                    const lines = (data.lines || 0).toLocaleString();
+                    const chars = (data.chars || 0).toLocaleString();
+                    const changed = (data.changed_lines || 0).toLocaleString();
+                    const actions = (data.formats || 0).toLocaleString();
+
+                    globalBadge.innerText = `📊 Total: ${lines} lines • ${actions} formats`;
+                    
+                    modalLines.innerText = lines;
+                    modalChars.innerText = chars;
+                    modalChanged.innerText = changed;
+                    modalActions.innerText = actions;
+                }, (error) => {
+                    console.error("Firebase Read Error:", error);
+                    globalBadge.innerText = "Stats: Access Denied";
+                });
+            }
+        });
+
+        // 3. WRITE Function (Called by Main Script)
+        window.logStatAction = function(lines, chars, changedLines) {
+            if (!lines || lines === 0) return;
+            if (!auth.currentUser) return; // Guard against unauthenticated writes
+
+            const now = new Date();
+            const todayStr = now.toISOString().split('T')[0];
+            const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+            // Helper to update counts
+            const updateCounts = (current) => {
+                if (!current) {
+                    return { 
+                        lines: lines, chars: chars, changed_lines: changedLines, formats: 1,
+                        max_lines: lines, max_lines_date: todayStr,
+                        max_chars: chars, max_chars_date: todayStr
+                    };
+                }
+                
+                // Check for records
+                let newMaxL = current.max_lines || 0;
+                let newMaxLDate = current.max_lines_date || todayStr;
+                if (lines > newMaxL) { newMaxL = lines; newMaxLDate = todayStr; }
+
+                let newMaxC = current.max_chars || 0;
+                let newMaxCDate = current.max_chars_date || todayStr;
+                if (chars > newMaxC) { newMaxC = chars; newMaxCDate = todayStr; }
+
+                return {
+                    lines: (current.lines || 0) + lines,
+                    chars: (current.chars || 0) + chars,
+                    changed_lines: (current.changed_lines || 0) + changedLines,
+                    formats: (current.formats || 0) + 1,
+                    max_lines: newMaxL, max_lines_date: newMaxLDate,
+                    max_chars: newMaxC, max_chars_date: newMaxCDate
+                };
+            };
+
+            // Run transactions for Total and Monthly
+            const p1 = runTransaction(child(statsRef, 'total'), updateCounts);
+            const p2 = runTransaction(child(statsRef, `monthly/${monthKey}`), (current) => {
+                if (!current) return { lines: lines, chars: chars, changed_lines: changedLines, formats: 1 };
+                return {
+                    lines: (current.lines || 0) + lines,
+                    chars: (current.chars || 0) + chars,
+                    changed_lines: (current.changed_lines || 0) + changedLines,
+                    formats: (current.formats || 0) + 1
+                };
+            });
+
+            // UI Feedback (Green Flash)
+            Promise.all([p1, p2]).then(() => {
+                globalBadge.style.backgroundColor = "rgba(46, 160, 67, 0.4)";
+                setTimeout(() => globalBadge.style.backgroundColor = "", 500);
+                checkRecords(lines, chars);
+            }).catch(err => console.error("Stat save failed", err));
+        };
+
+        function checkRecords(l, c) {
+            if (!statsLoaded) return;
+            const brokeLines = l > currentRecordStats.max_lines;
+            if (brokeLines) {
+                confetti({ particleCount: 100, spread: 70, origin: { y: 0.8 } });
+            }
+        }
+
+        // 3. MODAL & CHART Logic
+        globalBadge.addEventListener('click', () => {
+            if (!auth.currentUser) return; // Don't open if not connected
+
+            statsModal.style.display = 'flex';
+            monthlyTableBody.innerHTML = '<tr><td colspan="5">Loading...</td></tr>';
+
+            // Small delay to allow modal to render before drawing chart
+            setTimeout(() => {
+                get(child(statsRef, 'monthly')).then((snapshot) => {
+                    if (snapshot.exists()) {
+                        const monthlyData = snapshot.val();
+                        const sortedMonths = Object.keys(monthlyData).sort();
+
+                        const labels = [];
+                        const linesData = [];
+                        const changedData = [];
+                        const formatsData = [];
+                        let tableHtml = '';
+
+                        // Build Table (Reverse order - newest first)
+                        [...sortedMonths].reverse().forEach(key => {
+                            const m = monthlyData[key];
+                            tableHtml += `<tr>
+                                <td>${key}</td>
+                                <td>${(m.lines || 0).toLocaleString()}</td>
+                                <td>${(m.changed_lines || 0).toLocaleString()}</td>
+                                <td>${(m.chars || 0).toLocaleString()}</td>
+                                <td>${(m.formats || 0).toLocaleString()}</td>
+                            </tr>`;
+                        });
+                        monthlyTableBody.innerHTML = tableHtml;
+
+                        // Build Chart Data
+                        sortedMonths.forEach(key => {
+                            labels.push(key);
+                            linesData.push(monthlyData[key].lines || 0);
+                            changedData.push(monthlyData[key].changed_lines || 0);
+                            formatsData.push(monthlyData[key].formats || 0);
+                        });
+
+                        renderChart(labels, linesData, changedData, formatsData);
+                    } else {
+                        monthlyTableBody.innerHTML = '<tr><td colspan="5">No history yet.</td></tr>';
+                    }
+                });
+            }, 100);
+        });
+
+        function renderChart(labels, linesData, changedData, formatsData) {
+            const ctx = document.getElementById('statsChart').getContext('2d');
+            if (statsChartInstance) statsChartInstance.destroy();
+
+            statsChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Total Lines',
+                            data: linesData,
+                            backgroundColor: 'rgba(78, 201, 176, 0.6)',
+                            yAxisID: 'y',
+                        },
+                        {
+                            label: 'Lines Changed',
+                            data: changedData,
+                            backgroundColor: 'rgba(255, 153, 153, 0.6)', // Light red
+                            yAxisID: 'y',
+                        },
+                        {
+                            label: 'Formats',
+                            data: formatsData,
+                            borderColor: '#007acc',
+                            backgroundColor: 'rgba(0, 122, 204, 0.1)',
+                            type: 'line',
+                            yAxisID: 'y1',
+                            tension: 0.3
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { ticks: { color: '#858585' }, grid: { color: '#333' } },
+                        y: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                            title: { display: true, text: 'Volume', color: '#858585' },
+                            ticks: { color: '#858585' },
+                            grid: { color: '#333' }
+                        },
+                        y1: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            grid: { drawOnChartArea: false },
+                            ticks: { color: '#007acc' }
+                        }
+                    },
+                    plugins: {
+                        legend: { labels: { color: '#d4d4d4' } }
+                    }
+                }
+            });
+        }
+
+        btnCloseStats.onclick = () => { statsModal.style.display = 'none'; };
+        
+        // Close modal on outside click
+        window.onclick = (event) => {
+            if (event.target == statsModal) {
+                statsModal.style.display = "none";
+            }
+        };
+    </script>
+
+    <!-- Main Application Logic -->
+    <script>
+        const inputArea = document.getElementById('inputArea');
+        const codeBlock = document.getElementById('codeBlock');
+        const fileInput = document.getElementById('fileInput');
+        const fileNameInput = document.getElementById('fileName');
+        
+        let currentView = 'code'; 
+        let lastFormattedText = "";
+        let lastLoggedText = ""; // To prevent double logging same content
+
+        // --- Event Listeners ---
+
+        inputArea.addEventListener('input', debounce(processInput, 300));
+        
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            fileNameInput.value = file.name;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                inputArea.value = e.target.result;
+                processInput();
+            };
+            reader.readAsText(file);
+            fileInput.value = '';
+        });
+
+        // Sync Scrolling
+        const outputContainer = document.getElementById('outputContainer');
+        inputArea.addEventListener('scroll', () => {
+            outputContainer.scrollTop = inputArea.scrollTop;
+        });
+
+        // --- Core Logic ---
+
+        function processInput() {
+            const source = inputArea.value;
+            if (!source) {
+                codeBlock.innerHTML = '';
+                return;
+            }
+            lastFormattedText = indentBash(source);
+            renderOutput(source, lastFormattedText);
+        }
+
+        function renderOutput(original, formatted) {
+            codeBlock.innerHTML = ''; 
+
+            if (currentView === 'code') {
+                codeBlock.className = 'language-bash';
+                const html = Prism.highlight(formatted, Prism.languages.bash, 'bash');
+                codeBlock.innerHTML = html;
+            } 
+            else if (currentView === 'diff') {
+                codeBlock.className = 'language-bash'; 
+                const diff = Diff.diffLines(original, formatted);
+                
+                diff.forEach((part) => {
+                    const lines = part.value.split('\n');
+                    if (lines.length > 0 && lines[lines.length-1] === '') lines.pop();
+
+                    lines.forEach(line => {
+                        const div = document.createElement('div');
+                        div.className = 'diff-line';
+                        if (part.added) div.classList.add('diff-added');
+                        else if (part.removed) div.classList.add('diff-removed');
+
+                        if (!part.removed) {
+                            div.innerHTML = Prism.highlight(line, Prism.languages.bash, 'bash') || '&nbsp;';
+                        } else {
+                            div.textContent = line || ' '; 
+                        }
+                        if(div.innerHTML === '') div.innerHTML = '&nbsp;';
+                        codeBlock.appendChild(div);
+                    });
+                });
+            }
+        }
+
+        function setView(view) {
+            currentView = view;
+            document.getElementById('btnViewCode').className = view === 'code' ? 'active' : '';
+            document.getElementById('btnViewDiff').className = view === 'diff' ? 'active' : '';
+            document.getElementById('outputLabel').innerText = view === 'code' ? 'Formatted Output' : 'Diff Comparison';
+            processInput();
+        }
+
+        // --- The Formatter ---
+        function indentBash(source) {
+            const lines = source.split('\n');
+            let indentLevel = 0;
+            const indentString = '    '; 
+            const formattedLines = [];
+
+            for (let i = 0; i < lines.length; i++) {
+                let line = lines[i].trim();
+                if (line === '') {
+                    formattedLines.push('');
+                    continue;
+                }
+                const codePart = line.split('#')[0].trim();
+                const dedentKeywords = /^(fi|done|esac|\}|else|elif)(\s|$)|^\)$/;
+                
+                if (dedentKeywords.test(codePart)) {
+                    indentLevel = Math.max(0, indentLevel - 1);
+                }
+                formattedLines.push(indentString.repeat(indentLevel) + line);
+                const indentNextKeywords = /(then|do|in)$/; 
+                const blockOpeners = /^(\{|else|elif|function)/; 
+                const isCaseStart = /^case\b/.test(codePart) && /\bin$/.test(codePart);
+
+                if (indentNextKeywords.test(codePart) || blockOpeners.test(codePart) || isCaseStart) {
+                    indentLevel++;
+                }
+            }
+            return formattedLines.join('\n');
+        }
+
+        // --- Utilities & Stats Triggers ---
+
+        function triggerStatLog() {
+            const source = inputArea.value; // Get original content for diff
+            // Only log if content exists and hasn't just been logged
+            if (lastFormattedText && lastFormattedText !== lastLoggedText && window.logStatAction) {
+                const lines = lastFormattedText.split('\n').length;
+                const chars = lastFormattedText.length;
+                
+                // Calculate lines changed
+                let changedCount = 0;
+                const diff = Diff.diffLines(source, lastFormattedText);
+                diff.forEach(part => {
+                    if (part.added || part.removed) {
+                        changedCount += part.count;
+                    }
+                });
+
+                window.logStatAction(lines, chars, changedCount);
+                lastLoggedText = lastFormattedText;
+            }
+        }
+
+        function copyOutput() {
+            if (!lastFormattedText) return;
+            
+            // Trigger Stat Log on Copy
+            triggerStatLog();
+
+            navigator.clipboard.writeText(lastFormattedText).then(() => {
+                const btn = document.querySelector('button[onclick="copyOutput()"]');
+                const original = btn.innerText;
+                btn.innerText = "Copied!";
+                setTimeout(() => btn.innerText = original, 1500);
+            });
+        }
+
+        function downloadOutput() {
+            if (!lastFormattedText) return;
+            
+            // Trigger Stat Log on Download
+            triggerStatLog();
+
+            let name = fileNameInput.value.trim();
+            if (!name) name = "formatted.sh";
+            
+            const blob = new Blob([lastFormattedText], { type: 'text/x-sh' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            
+            a.href = url;
+            a.download = name;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
+
+        // Initialize
+        processInput();
+
+    </script>
+</body>
+</html>
