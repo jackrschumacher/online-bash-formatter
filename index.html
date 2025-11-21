@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bash Formatter & Diff</title>
-    <link rel="icon" type="image/x-icon" href="favicon.ico">
     
     <!-- PrismJS for Syntax Highlighting (Dracula Theme) -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
@@ -327,8 +326,7 @@
 <body>
 
     <header>
-        <h1><span>&gt;_</span> Online bash formatter v1.0</h1>
-         
+        <h1><span>&gt;_</span> Bash Beautifier</h1>
         <div class="controls">
             <div class="view-toggle">
                 <button id="btnViewCode" class="active" onclick="setView('code')">Code</button>
@@ -350,7 +348,10 @@
     <div class="main-container">
         <!-- Left: Raw Input -->
         <div class="pane">
-            <div class="pane-header">Input (Editable)</div>
+            <div class="pane-header">
+                <span>Input (Editable)</span>
+                <button class="btn btn-secondary" onclick="clearInput()" style="padding: 2px 8px; font-size: 0.75rem; height: 22px; display: flex; align-items: center;">Clear</button>
+            </div>
             <textarea id="inputArea" spellcheck="false" placeholder="# Paste script here...&#10;if [ $x ]; then echo 'hi'; fi"></textarea>
         </div>
 
@@ -718,6 +719,11 @@
         });
 
         // --- Core Logic ---
+
+        function clearInput() {
+            inputArea.value = '';
+            processInput();
+        }
 
         function processInput() {
             const source = inputArea.value;
