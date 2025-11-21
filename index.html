@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Online Bash Formatter</title>
-    <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <title>Bash Formatter & Diff</title>
+    
     <!-- PrismJS for Syntax Highlighting (Dracula Theme) -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
     
@@ -74,9 +74,14 @@
             font-weight: 600;
             transition: 0.2s;
             white-space: nowrap;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
         }
         .btn:hover { filter: brightness(1.1); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; filter: grayscale(1); }
         .btn-secondary { background-color: #3c3c3c; }
+        .btn-success { background-color: #2e7d32; }
         
         /* Switch Toggle */
         .view-toggle {
@@ -321,27 +326,59 @@
         .monthly-table tr:last-child td { border-bottom: none; }
 
         .modal-buttons { display: flex; justify-content: flex-end; margin-top: 20px; }
+
+        /* Watching Indicator */
+        .watch-indicator {
+            display: none;
+            align-items: center;
+            font-size: 0.7rem;
+            color: var(--success-color);
+            margin-right: 10px;
+            gap: 4px;
+        }
+        .watch-indicator.active { display: flex; }
+        .pulse {
+            width: 8px; height: 8px; border-radius: 50%; background-color: var(--success-color);
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 0.5; transform: scale(0.8); }
+            50% { opacity: 1; transform: scale(1.2); }
+            100% { opacity: 0.5; transform: scale(0.8); }
+        }
     </style>
 </head>
 <body>
 
     <header>
-        <h1><span>&gt;_</span> Online Bash Formatter</h1>
+        <h1><span>&gt;_</span> Bash Beautifier</h1>
         <div class="controls">
+            <!-- Watch Indicator -->
+            <div id="watchIndicator" class="watch-indicator" title="Watching for local file changes...">
+                <div class="pulse"></div> Watching File
+            </div>
+
             <div class="view-toggle">
                 <button id="btnViewCode" class="active" onclick="setView('code')">Code</button>
                 <button id="btnViewDiff" onclick="setView('diff')">Diff</button>
             </div>
             
-            <label class="btn btn-secondary">
-                Open File
-                <input type="file" id="fileInput" accept=".sh,.bash,.txt">
-            </label>
+            <!-- Hidden Input for Fallback -->
+            <input type="file" id="fileInput" accept=".sh,.bash,.txt">
 
-            <input type="text" id="fileName" class="filename-input" placeholder="script.sh" value="formatted_script.sh" title="Filename to save as">
+            <button class="btn btn-secondary" onclick="handleOpen()" title="Open File (Ctrl+O)">
+                Open
+            </button>
             
-            <button class="btn" onclick="downloadOutput()">Download</button>
-            <button class="btn btn-secondary" onclick="copyOutput()">Copy</button>
+            <button class="btn" id="btnSave" onclick="saveChanges()" title="Save Changes (Ctrl+S)">
+                Save
+            </button>
+
+            <input type="text" id="fileName" class="filename-input" placeholder="script.sh" value="formatted_script.sh" title="Filename for Save Copy">
+            
+            <button class="btn btn-secondary" onclick="downloadOutput()" title="Download Copy">
+                Save Copy
+            </button>
         </div>
     </header>
 
@@ -690,15 +727,22 @@
         const codeBlock = document.getElementById('codeBlock');
         const fileInput = document.getElementById('fileInput');
         const fileNameInput = document.getElementById('fileName');
+        const watchIndicator = document.getElementById('watchIndicator');
         
         let currentView = 'code'; 
         let lastFormattedText = "";
-        let lastLoggedText = ""; // To prevent double logging same content
+        let lastLoggedText = ""; 
+        
+        // File System Access API Variables
+        let currentFileHandle = null;
+        let watchInterval = null;
+        let lastFileModified = 0;
 
         // --- Event Listeners ---
 
         inputArea.addEventListener('input', debounce(processInput, 300));
         
+        // Fallback File Input
         fileInput.addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (!file) return;
@@ -712,16 +756,125 @@
             fileInput.value = '';
         });
 
+        // Keyboard Shortcuts
+        document.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                e.preventDefault();
+                saveChanges();
+            }
+            if ((e.ctrlKey || e.metaKey) && e.key === 'o') {
+                e.preventDefault();
+                handleOpen();
+            }
+        });
+
         // Sync Scrolling
         const outputContainer = document.getElementById('outputContainer');
         inputArea.addEventListener('scroll', () => {
             outputContainer.scrollTop = inputArea.scrollTop;
         });
 
-        // --- Core Logic ---
+        // --- FILE SYSTEM & WATCHER LOGIC ---
+
+        async function handleOpen() {
+            // Check support
+            if ('showOpenFilePicker' in window) {
+                try {
+                    const [fileHandle] = await window.showOpenFilePicker({
+                        types: [{
+                            description: 'Bash Scripts',
+                            accept: { 'text/x-sh': ['.sh', '.bash', '.txt'] }
+                        }]
+                    });
+                    currentFileHandle = fileHandle;
+                    
+                    const file = await fileHandle.getFile();
+                    fileNameInput.value = file.name;
+                    lastFileModified = file.lastModified;
+                    
+                    const text = await file.text();
+                    inputArea.value = text;
+                    processInput();
+                    
+                    // Start Watching
+                    startWatchingFile();
+
+                } catch (err) {
+                    if (err.name !== 'AbortError') console.error(err);
+                }
+            } else {
+                // Fallback
+                fileInput.click();
+            }
+        }
+
+        async function saveChanges() {
+            if (currentFileHandle) {
+                try {
+                    const writable = await currentFileHandle.createWritable();
+                    await writable.write(inputArea.value);
+                    await writable.close();
+                    
+                    // Update lastModified so watcher doesn't trigger immediately
+                    const file = await currentFileHandle.getFile();
+                    lastFileModified = file.lastModified;
+                    
+                    // Visual Feedback
+                    const btn = document.getElementById('btnSave');
+                    const original = btn.innerText;
+                    btn.innerText = "Saved!";
+                    setTimeout(() => btn.innerText = original, 1500);
+                    
+                    triggerStatLog(); // Log stats on save
+                } catch (err) {
+                    console.error("Save failed", err);
+                    alert("Failed to save file.");
+                }
+            } else {
+                // Fallback to standard download
+                downloadOutput();
+            }
+        }
+
+        function startWatchingFile() {
+            if (watchInterval) clearInterval(watchInterval);
+            watchIndicator.classList.add('active');
+            
+            watchInterval = setInterval(async () => {
+                if (!currentFileHandle) return;
+                try {
+                    // We get the file metadata again
+                    const file = await currentFileHandle.getFile();
+                    
+                    if (file.lastModified > lastFileModified) {
+                        // File has changed on disk!
+                        lastFileModified = file.lastModified;
+                        const text = await file.text();
+                        
+                        // Check if text is actually different to avoid cursor jumps if possible
+                        if (text !== inputArea.value) {
+                            inputArea.value = text;
+                            processInput();
+                            // Optional: Notify user
+                            console.log("File updated from disk");
+                        }
+                    }
+                } catch (err) {
+                    // Handle permissions errors or file deletions
+                    console.error("Watch error:", err);
+                    clearInterval(watchInterval);
+                    watchIndicator.classList.remove('active');
+                }
+            }, 1000); // Poll every 1 second
+        }
+
+        // --- Core Formatter Logic ---
 
         function clearInput() {
             inputArea.value = '';
+            currentFileHandle = null;
+            if (watchInterval) clearInterval(watchInterval);
+            watchIndicator.classList.remove('active');
             processInput();
         }
 
