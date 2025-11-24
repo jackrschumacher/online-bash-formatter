@@ -366,16 +366,20 @@
             <!-- Hidden Input for Fallback -->
             <input type="file" id="fileInput" accept=".sh,.bash,.txt">
 
+            <!-- Primary Open Button -->
             <button class="btn btn-secondary" onclick="handleOpen()" title="Open File (Ctrl+O)">
                 Open
             </button>
             
-            <button class="btn" id="btnSave" onclick="saveChanges()" title="Save Changes (Ctrl+S)">
+            <button class="btn" id="btnSave" onclick="saveChanges()" title="Save Formatted Code to File (Ctrl+S)">
                 Save
             </button>
 
             <input type="text" id="fileName" class="filename-input" placeholder="script.sh" value="formatted_script.sh" title="Filename for Save Copy">
             
+            <button class="btn btn-secondary" onclick="copyOutput()" title="Copy Formatted Code">
+                Copy
+            </button>
             <button class="btn btn-secondary" onclick="downloadOutput()" title="Download Copy">
                 Save Copy
             </button>
@@ -812,9 +816,14 @@
             if (currentFileHandle) {
                 try {
                     const writable = await currentFileHandle.createWritable();
-                    await writable.write(inputArea.value);
+                    // SAVE THE FORMATTED TEXT (lastFormattedText), NOT THE INPUT
+                    await writable.write(lastFormattedText);
                     await writable.close();
                     
+                    // Update editor to reflect what was saved
+                    inputArea.value = lastFormattedText;
+                    processInput(); // Re-process to ensure diffs/syntax highlight are correct
+
                     // Update lastModified so watcher doesn't trigger immediately
                     const file = await currentFileHandle.getFile();
                     lastFileModified = file.lastModified;
