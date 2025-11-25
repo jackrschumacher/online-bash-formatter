@@ -815,6 +815,9 @@
         async function saveChanges() {
             if (currentFileHandle) {
                 try {
+                    // Capture current "messy" state BEFORE updating the UI
+                    const contentBeforeUpdate = inputArea.value;
+
                     const writable = await currentFileHandle.createWritable();
                     // SAVE THE FORMATTED TEXT (lastFormattedText), NOT THE INPUT
                     await writable.write(lastFormattedText);
@@ -834,7 +837,8 @@
                     btn.innerText = "Saved!";
                     setTimeout(() => btn.innerText = original, 1500);
                     
-                    triggerStatLog(); // Log stats on save
+                    // Log stats using the captured "messy" content
+                    triggerStatLog(contentBeforeUpdate); 
                 } catch (err) {
                     console.error("Save failed", err);
                     alert("Failed to save file.");
@@ -972,8 +976,10 @@
 
         // --- Utilities & Stats Triggers ---
 
-        function triggerStatLog() {
-            const source = inputArea.value; // Get original content for diff
+        function triggerStatLog(optionalSource) {
+            // Use optionalSource if provided (from Save), otherwise read from Input (Copy/Download)
+            const source = optionalSource !== undefined ? optionalSource : inputArea.value; 
+            
             // Only log if content exists and hasn't just been logged
             if (lastFormattedText && lastFormattedText !== lastLoggedText && window.logStatAction) {
                 const lines = lastFormattedText.split('\n').length;
