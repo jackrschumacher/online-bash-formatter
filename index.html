@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bash Formatter & Diff</title>
+    <title>Online bash formatter</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico">
     <!-- PrismJS for Syntax Highlighting (Dracula Theme) -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
@@ -373,6 +373,10 @@
             
             <button class="btn" id="btnSave" onclick="saveChanges()" title="Save Formatted Code to File (Ctrl+S)">
                 Save
+            </button>
+
+            <button id="btnSpellcheck" class="btn btn-secondary" onclick="toggleSpellcheck()" title="Enable Spellcheck">
+                Spellcheck
             </button>
 
             <input type="text" id="fileName" class="filename-input" placeholder="script.sh" value="formatted_script.sh" title="Filename for Save Copy">
@@ -941,6 +945,23 @@
             document.getElementById('btnViewDiff').className = view === 'diff' ? 'active' : '';
             document.getElementById('outputLabel').innerText = view === 'code' ? 'Formatted Output' : 'Diff Comparison';
             processInput();
+        }
+
+        function toggleSpellcheck() {
+            const btn = document.getElementById('btnSpellcheck');
+            const isNowOn = inputArea.getAttribute('spellcheck') === 'true';
+            
+            if (isNowOn) {
+                inputArea.setAttribute('spellcheck', 'false');
+                btn.classList.remove('btn-success');
+                btn.classList.add('btn-secondary');
+                btn.title = "Enable Spellcheck";
+            } else {
+                inputArea.setAttribute('spellcheck', 'true');
+                btn.classList.remove('btn-secondary');
+                btn.classList.add('btn-success');
+                btn.title = "Disable Spellcheck";
+            }
         }
 
         // --- The Formatter ---
