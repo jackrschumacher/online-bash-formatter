@@ -186,20 +186,47 @@
             flex-shrink: 0;
         }
 
+        /* Editor Wrapper to hold gutter + textarea */
+        .editor-wrapper {
+            display: flex;
+            height: 100%;
+            position: relative;
+            background-color: var(--bg-editor);
+            overflow: hidden;
+        }
+
+        /* Line Number Gutter */
+        .line-numbers {
+            width: 45px;
+            background-color: var(--bg-secondary);
+            color: #606060;
+            text-align: right;
+            padding: 15px 8px 15px 0; /* Matches textarea padding */
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            border-right: 1px solid var(--border-color);
+            user-select: none;
+            overflow: hidden;
+            flex-shrink: 0;
+            white-space: pre;
+        }
+
         /* Input Textarea */
         textarea {
-            width: 100%;
+            flex: 1;
             height: 100%;
             background-color: var(--bg-editor);
             color: #d4d4d4;
             border: none;
             resize: none;
-            padding: 15px;
+            padding: 15px 10px; /* Left padding reduced slightly */
             font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
             font-size: 14px;
             line-height: 1.5;
             outline: none;
-            white-space: pre;
+            white-space: pre; /* Force no wrap to keep lines 1:1 with gutter */
+            overflow: auto;
         }
 
         /* Output Display (Pre/Code) */
@@ -500,7 +527,10 @@
                 <span>Input (Editable)</span>
                 <button class="btn btn-secondary" onclick="clearInput()" style="padding: 2px 8px; font-size: 0.75rem; height: 22px; display: flex; align-items: center;">Clear</button>
             </div>
-            <textarea id="inputArea" spellcheck="false" placeholder="# Paste script here...&#10;if [ $x ]; then echo 'hi'; fi"></textarea>
+            <div class="editor-wrapper">
+                <div id="inputGutter" class="line-numbers">1</div>
+                <textarea id="inputArea" spellcheck="false" placeholder="# Paste script here...&#10;if [ $x ]; then echo 'hi'; fi"></textarea>
+            </div>
         </div>
 
         <!-- Right: Formatted/Diff Output -->
@@ -760,6 +790,7 @@
     <!-- Main Application Logic -->
     <script>
         const inputArea = document.getElementById('inputArea');
+        const inputGutter = document.getElementById('inputGutter');
         const codeBlock = document.getElementById('codeBlock');
         const fileInput = document.getElementById('fileInput');
         const fileNameInput = document.getElementById('fileName');
@@ -776,14 +807,24 @@
         let watchInterval = null;
         let lastFileModified = 0;
 
-        inputArea.addEventListener('input', debounce(processInput, 300));
+        inputArea.addEventListener('input', () => {
+            updateLineNumbers();
+            debounce(processInput, 300)();
+        });
         
+        // Initial Line numbers
+        updateLineNumbers();
+
         fileInput.addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (!file) return;
             fileNameInput.value = file.name;
             const reader = new FileReader();
-            reader.onload = (e) => { inputArea.value = e.target.result; processInput(); };
+            reader.onload = (e) => { 
+                inputArea.value = e.target.result; 
+                updateLineNumbers();
+                processInput(); 
+            };
             reader.readAsText(file);
             fileInput.value = '';
         });
@@ -794,7 +835,10 @@
         });
 
         const outputContainer = document.getElementById('outputContainer');
-        inputArea.addEventListener('scroll', () => { outputContainer.scrollTop = inputArea.scrollTop; });
+        inputArea.addEventListener('scroll', () => { 
+            outputContainer.scrollTop = inputArea.scrollTop; 
+            inputGutter.scrollTop = inputArea.scrollTop;
+        });
 
         async function handleOpen() {
             if ('showOpenFilePicker' in window) {
@@ -806,6 +850,7 @@
                     lastFileModified = file.lastModified;
                     const text = await file.text();
                     inputArea.value = text;
+                    updateLineNumbers();
                     processInput();
                     startWatchingFile();
                 } catch (err) { if (err.name !== 'AbortError') console.error(err); }
@@ -820,6 +865,7 @@
                     await writable.write(lastFormattedText);
                     await writable.close();
                     inputArea.value = lastFormattedText;
+                    updateLineNumbers();
                     processInput();
                     const file = await currentFileHandle.getFile();
                     lastFileModified = file.lastModified;
@@ -844,6 +890,7 @@
                         const text = await file.text();
                         if (text !== inputArea.value) {
                             inputArea.value = text;
+                            updateLineNumbers();
                             processInput();
                             console.log("File updated from disk");
                         }
@@ -854,10 +901,16 @@
 
         function clearInput() {
             inputArea.value = '';
+            updateLineNumbers();
             currentFileHandle = null;
             if (watchInterval) clearInterval(watchInterval);
             watchIndicator.classList.remove('active');
             processInput();
+        }
+
+        function updateLineNumbers() {
+            const lines = inputArea.value.split('\n').length;
+            inputGutter.innerHTML = Array(lines).fill(0).map((_, i) => i + 1).join('<br>');
         }
 
         function processInput() {
@@ -1046,6 +1099,7 @@
 
             // Update Editor
             inputArea.value = lines.join('\n');
+            updateLineNumbers();
             processInput(); // Re-format and syntax highlight
             
             // Log the Fix
